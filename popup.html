@@ -3,60 +3,133 @@
 <head>
     <title>WhatsApp Summarizer</title>
     <style>
+        /* --- THEME VARIABLES --- */
         body {
+            /* Light Theme (Default) */
+            --bg-color: #ffffff;
+            --text-color: #222222;
+            --button-bg: #f0f0f0;
+            --button-hover-bg: #e0e0e0;
+            --input-border-color: #ccc;
+            --summary-bg: #f5f5f5;
+            --status-text-color: #555;
+            --border-color: #eee;
+            --icon-filter: invert(0);
+
             font-family: sans-serif;
             width: 350px;
             padding: 10px;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            transition: background-color 0.2s, color 0.2s;
         }
+
+        body.dark-mode {
+            /* Dark Theme */
+            --bg-color: #2c2c2c;
+            --text-color: #eeeeee;
+            --button-bg: #555555;
+            --button-hover-bg: #666666;
+            --input-border-color: #666;
+            --summary-bg: #3a3a3a;
+            --status-text-color: #bbb;
+            --border-color: #444;
+            --icon-filter: invert(1);
+        }
+
+        /* --- GENERAL STYLES --- */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
         h3 {
-            margin-top: 0;
+            margin: 0;
+            color: var(--text-color);
         }
+
         .button-group {
             margin-bottom: 15px;
-            display: flex; /* Aligns buttons nicely */
-            gap: 5px;      /* Adds space between buttons */
+            display: flex;
+            gap: 5px;
         }
+
         button {
-            flex-grow: 1; /* Makes buttons share space */
+            flex-grow: 1;
             cursor: pointer;
+            background-color: var(--button-bg);
+            color: var(--text-color);
+            border: 1px solid var(--input-border-color);
+            padding: 8px;
+            border-radius: 4px;
+            transition: background-color 0.2s;
+        }
+        button:hover:not(:disabled) {
+            background-color: var(--button-hover-bg);
         }
         button:disabled {
             cursor: not-allowed;
             opacity: 0.6;
         }
+
+        #theme-toggle {
+            width: auto;
+            flex-grow: 0;
+            padding: 5px 10px;
+            font-size: 1.2em;
+            line-height: 1;
+        }
+
         .custom-range {
             margin-top: 10px;
-            border: 1px solid #ccc;
+            border: 1px solid var(--input-border-color);
             padding: 10px;
             border-radius: 5px;
         }
+
         label {
             display: block;
             margin-bottom: 5px;
         }
+
         input[type="datetime-local"] {
             width: 95%;
             margin-bottom: 10px;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            border: 1px solid var(--input-border-color);
+            padding: 4px;
+            border-radius: 3px;
         }
+        input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+            filter: var(--icon-filter);
+        }
+
         #summary-container {
             margin-top: 15px;
-            border-top: 1px solid #eee;
+            border-top: 1px solid var(--border-color);
             padding-top: 10px;
         }
+
         #chat-title {
             font-weight: bold;
             font-size: 1.1em;
             margin-bottom: 10px;
         }
+
         #status-message {
             font-style: italic;
-            color: #555;
+            color: var(--status-text-color);
             margin-bottom: 10px;
             min-height: 1.2em;
         }
+
         #summary-result {
             white-space: pre-wrap;
-            background-color: #f5f5f5;
+            background-color: var(--summary-bg);
+            color: var(--text-color);
             padding: 10px;
             border-radius: 5px;
             min-height: 50px;
@@ -64,12 +137,15 @@
     </style>
 </head>
 <body>
-    <h3>WhatsApp Chat Summarizer</h3>
+    <div class="header">
+        <h3>WhatsApp Summarizer</h3>
+        <button id="theme-toggle">🌙</button>
+    </div>
 
     <div class="button-group">
         <button id="summarize-hour">Last Hour</button>
         <button id="summarize-day">Last 24 Hours</button>
-        <button id="refresh-summary">Refresh</button> <!-- NEW REFRESH BUTTON -->
+        <button id="refresh-summary">Refresh</button>
     </div>
 
     <div class="custom-range">
@@ -84,7 +160,7 @@
 
     <div id="summary-container">
         <div id="chat-title"></div>
-        <div id="status-message"></div> <!-- NEW STATUS ELEMENT -->
+        <div id="status-message"></div>
         <div id="summary-result">Summary will appear here...</div>
     </div>
 

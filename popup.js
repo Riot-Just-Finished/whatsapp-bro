@@ -4,24 +4,57 @@ const API_KEY = "AIzaSyBH57KFKL9P9T0mL6VOnGC6oebXStjrwWE";
 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`;
 
 // --- DOM ELEMENTS ---
+const themeToggleBtn = document.getElementById('theme-toggle');
 const summarizeHourBtn = document.getElementById('summarize-hour');
 const summarizeDayBtn = document.getElementById('summarize-day');
 const summarizeCustomBtn = document.getElementById('summarize-custom');
-const refreshSummaryBtn = document.getElementById('refresh-summary'); // New button
+const refreshSummaryBtn = document.getElementById('refresh-summary');
 const startTimeInput = document.getElementById('start-time');
 const endTimeInput = document.getElementById('end-time');
 const summaryResultDiv = document.getElementById('summary-result');
 const chatTitleDiv = document.getElementById('chat-title');
-const statusMessageDiv = document.getElementById('status-message'); // New status div
+const statusMessageDiv = document.getElementById('status-message');
 
 // Store the last used filter type to enable the "Refresh" button
 let lastFilterType = 'hour';
 
+// --- THEME MANAGEMENT ---
+
+/**
+ * Toggles the theme between light and dark mode and saves the preference.
+ */
+function toggleTheme() {
+    document.body.classList.toggle('dark-mode');
+    const isDarkMode = document.body.classList.contains('dark-mode');
+    themeToggleBtn.textContent = isDarkMode ? 'Light!' : 'dark'; // Update button icon
+    chrome.storage.local.set({ theme: isDarkMode ? 'dark' : 'light' });
+}
+
+/**
+ * Loads the saved theme from storage and applies it to the UI.
+ */
+async function applyInitialTheme() {
+    const data = await chrome.storage.local.get('theme');
+    if (data.theme === 'dark') {
+        document.body.classList.add('dark-mode');
+        themeToggleBtn.textContent = 'light';
+    } else {
+        // Light mode is the default, no class needed, just set the icon
+        themeToggleBtn.textContent = 'dark';
+    }
+}
+
 // --- EVENT LISTENERS ---
+themeToggleBtn.addEventListener('click', toggleTheme);
 summarizeHourBtn.addEventListener('click', () => handleSummarizeClick('hour'));
 summarizeDayBtn.addEventListener('click', () => handleSummarizeClick('day'));
 summarizeCustomBtn.addEventListener('click', () => handleSummarizeClick('custom'));
-refreshSummaryBtn.addEventListener('click', () => handleSummarizeClick(lastFilterType, true)); // forceRefresh = true
+refreshSummaryBtn.addEventListener('click', () => handleSummarizeClick(lastFilterType, true));
+
+// --- INITIALIZATION ---
+// Apply the saved theme as soon as the popup script runs
+applyInitialTheme();
+
 
 // --- UI STATE MANAGEMENT ---
 function setLoadingState(isLoading) {
