@@ -1,59 +1,92 @@
 // --- CONFIGURATION ---
 // IMPORTANT: Replace with your actual Gemini API Key
 const API_KEY = "AIzaSyBH57KFKL9P9T0mL6VOnGC6oebXStjrwWE";
-// THE FIX IS ON THIS LINE: "generativelanguage" is now spelled correctly.
 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`;
 
 // --- DOM ELEMENTS ---
 const summarizeHourBtn = document.getElementById('summarize-hour');
 const summarizeDayBtn = document.getElementById('summarize-day');
 const summarizeCustomBtn = document.getElementById('summarize-custom');
+const refreshSummaryBtn = document.getElementById('refresh-summary'); // New button
 const startTimeInput = document.getElementById('start-time');
 const endTimeInput = document.getElementById('end-time');
 const summaryResultDiv = document.getElementById('summary-result');
 const chatTitleDiv = document.getElementById('chat-title');
+const statusMessageDiv = document.getElementById('status-message'); // New status div
+
+// Store the last used filter type to enable the "Refresh" button
+let lastFilterType = 'hour';
 
 // --- EVENT LISTENERS ---
 summarizeHourBtn.addEventListener('click', () => handleSummarizeClick('hour'));
 summarizeDayBtn.addEventListener('click', () => handleSummarizeClick('day'));
 summarizeCustomBtn.addEventListener('click', () => handleSummarizeClick('custom'));
+refreshSummaryBtn.addEventListener('click', () => handleSummarizeClick(lastFilterType, true)); // forceRefresh = true
+
+// --- UI STATE MANAGEMENT ---
+function setLoadingState(isLoading) {
+    const buttons = [summarizeHourBtn, summarizeDayBtn, summarizeCustomBtn, refreshSummaryBtn];
+    buttons.forEach(button => button.disabled = isLoading);
+    statusMessageDiv.textContent = isLoading ? 'Processing...' : '';
+}
 
 // --- MAIN LOGIC ---
 
-async function handleSummarizeClick(filterType) {
+async function handleSummarizeClick(filterType, forceRefresh = false) {
+    setLoadingState(true);
+    lastFilterType = filterType; // Remember the last action for the refresh button
     summaryResultDiv.textContent = 'Starting process...';
     chatTitleDiv.textContent = '';
+
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
     if (!tab.url || !tab.url.startsWith("https://web.whatsapp.com/")) {
         summaryResultDiv.textContent = 'This extension only works on web.whatsapp.com.';
+        setLoadingState(false);
         return;
     }
     
     try {
-        summaryResultDiv.textContent = 'Injecting script into WhatsApp Web...';
+        // 1. Check for a cached summary unless a refresh is forced
+        if (!forceRefresh) {
+            // We need the chat name first to check the cache
+            statusMessageDiv.textContent = 'Injecting script to get chat name...';
+            await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
+            const preliminaryResponse = await chrome.tabs.sendMessage(tab.id, { action: "getMessages" });
+            const chatName = preliminaryResponse ? preliminaryResponse.chatName : null;
+
+            if (chatName) {
+                const storedSummary = await getStoredSummary(chatName, filterType);
+                if (storedSummary) {
+                    chatTitleDiv.textContent = `Summary for: ${chatName}`;
+                    summaryResultDiv.textContent = storedSummary;
+                    statusMessageDiv.textContent = 'Displayed cached summary.';
+                    setLoadingState(false);
+                    return; // Stop here if cache is found and used
+                }
+            }
+        }
+
+        // 2. If no cache or forceRefresh, proceed with full scrape and summary
+        statusMessageDiv.textContent = 'Requesting messages from the page...';
+        // The script might have already been injected, but injecting again is safe
         await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
-        
-        summaryResultDiv.textContent = 'Requesting messages from the page...';
         const response = await chrome.tabs.sendMessage(tab.id, { action: "getMessages" });
 
         if (response && response.messages) {
             chatTitleDiv.textContent = `Summary for: ${response.chatName || 'Current Chat'}`;
             
-            const storedSummary = await getStoredSummary(response.chatName, filterType);
-            if (storedSummary) {
-                summaryResultDiv.textContent = storedSummary;
-                return;
-            }
-            summaryResultDiv.textContent = `Found ${response.messages.length} total messages. Filtering by time...`;
+            statusMessageDiv.textContent = `Found ${response.messages.length} total messages. Filtering...`;
             const filteredMessages = filterMessages(response.messages, filterType);
 
             if (filteredMessages.length === 0) {
-                summaryResultDiv.textContent = 'No messages found in the selected time range. Check the extension console for parsing errors.';
+                summaryResultDiv.textContent = 'No messages found in the selected time range.';
+                statusMessageDiv.textContent = 'Check console for parsing errors if this is unexpected.';
+                setLoadingState(false);
                 return;
             }
-            summaryResultDiv.textContent = `Found ${filteredMessages.length} messages to summarize. Calling Gemini API...`;
-
+            
+            statusMessageDiv.textContent = `Summarizing ${filteredMessages.length} messages with Gemini...`;
             const chatText = filteredMessages.map(m => `${m.meta} ${m.text}`).join('\n');
             const summary = await getGeminiSummary(chatText);
             summaryResultDiv.textContent = summary;
@@ -63,34 +96,48 @@ async function handleSummarizeClick(filterType) {
         } else if (response && response.error) {
             summaryResultDiv.textContent = `Error: ${response.error}`;
         } else {
-             summaryResultDiv.textContent = 'Failed to extract messages. Ensure a chat is open.';
+             summaryResultDiv.textContent = 'Failed to extract messages. Ensure a chat is open and visible.';
         }
 
     } catch (error) {
         summaryResultDiv.textContent = `An error occurred: ${error.message}.`;
         console.error("Error in handleSummarizeClick:", error);
+    } finally {
+        setLoadingState(false);
     }
 }
 
+/**
+ * Parses metadata string to get a Date object.
+ * Improved regex to be more flexible with date separators and time formats.
+ */
 function parseMetaAndGetDate(metaStr) {
     if (!metaStr) return null;
-    const match = metaStr.match(/\[(\d{1,2}:\d{2})\s*(am|pm)?\s*,\s*(\d{1,2}\/\d{1,2}\/\d{4})\]/i);
+    // Handles formats like [11:30, 17/08/2025] or [11:30 AM, 8/17/2025] or [11:30, 17.08.2025]
+    const match = metaStr.match(/\[(\d{1,2}:\d{2})\s*(am|pm)?\s*,\s*(\d{1,2})[\/\.\-](\d{1,2})[\/\.\-](\d{4})\]/i);
     if (!match) {
         console.warn(`Could not parse meta string: "${metaStr}"`);
         return null;
     }
-    const timeStr = match[1], period = match[2], dateStr = match[3];
+
+    const [, timeStr, period, dayStr, monthStr, yearStr] = match;
     let [hours, minutes] = timeStr.split(':').map(Number);
-    if (period) {
+    
+    if (period) { // Adjust for 12-hour format if AM/PM is present
         const lowerPeriod = period.toLowerCase();
         if (lowerPeriod === 'pm' && hours < 12) hours += 12;
-        if (lowerPeriod === 'am' && hours === 12) hours = 0;
+        if (lowerPeriod === 'am' && hours === 12) hours = 0; // Midnight case
     }
-    const dateParts = dateStr.split('/').map(Number);
-    const day = dateParts[0], month = dateParts[1] - 1, year = dateParts[2];
+
+    // Assuming a DD/MM/YYYY format. For MM/DD/YYYY, swap day and month.
+    const day = parseInt(dayStr, 10);
+    const month = parseInt(monthStr, 10) - 1; // JS months are 0-indexed
+    const year = parseInt(yearStr, 10);
+
     if (isNaN(day) || isNaN(month) || isNaN(year) || isNaN(hours) || isNaN(minutes)) return null;
     return new Date(year, month, day, hours, minutes, 0);
 }
+
 
 function filterMessages(messages, filterType) {
     const now = new Date();
@@ -136,6 +183,7 @@ async function storeSummary(chatName, filterType, summary) {
     const key = `summary_${chatName}_${filterType}`;
     await chrome.storage.local.set({ [key]: { summary, timestamp: new Date().getTime() } });
 }
+
 async function getStoredSummary(chatName, filterType) {
     if (!chatName) return null;
     const key = `summary_${chatName}_${filterType}`;
@@ -143,7 +191,7 @@ async function getStoredSummary(chatName, filterType) {
     if (result[key]) {
         const { summary, timestamp } = result[key];
         const ageMinutes = (new Date().getTime() - timestamp) / 60000;
-        if (ageMinutes < 10) {
+        if (ageMinutes < 10) { // Cache is still valid for 10 minutes
             const cachedTime = new Date(timestamp).toLocaleTimeString();
             return `(Cached at ${cachedTime})\n\n${summary}`;
         }

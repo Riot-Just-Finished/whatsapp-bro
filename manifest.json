@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "WhatsApp Chat Summarizer",
-  "version": "1.1",
+  "version": "1.2",
   "description": "Summarizes WhatsApp Web chats using the Gemini API.",
   "permissions": [
     "activeTab",
